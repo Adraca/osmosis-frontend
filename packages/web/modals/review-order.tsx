@@ -13,7 +13,7 @@ import { isValidNumericalRawInput } from "@osmosis-labs/utils";
 import classNames from "classnames";
 import Image from "next/image";
 import { parseAsString, useQueryState } from "nuqs";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { observer } from "mobx-react-lite";
 import AutosizeInput from "react-input-autosize";
 
@@ -56,6 +56,7 @@ interface ReviewOrderProps {
   confirmAction: () => void;
   isConfirmationDisabled: boolean;
   slippageConfig?: ObservableSlippageConfig;
+  autoAdjustedSlippage?: string;
   amountWithSlippage?: IntPretty;
   fiatAmountWithSlippage?: PricePretty;
   outputDifference?: RatePretty;
@@ -86,6 +87,7 @@ export const ReviewOrder = observer(function ReviewOrder({
   confirmAction,
   isConfirmationDisabled,
   slippageConfig,
+  autoAdjustedSlippage,
   amountWithSlippage,
   fiatAmountWithSlippage,
   outputDifference,
@@ -158,16 +160,31 @@ export const ReviewOrder = observer(function ReviewOrder({
   );
   const { isMobile } = useWindowSize(Breakpoint.sm);
 
-  // If the user hasn't typed anything, show the auto-adjusted default as the actual value
-  // rather than relying on the placeholder (which doesn't always update reactively).
+  // autoAdjustedSlippage is computed synchronously from the quote in the parent
+  // (same render cycle as gas/quote updates), so the display stays in lock-step.
+  const isAutoAdjusted =
+    autoAdjustedSlippage !== undefined &&
+    autoAdjustedSlippage !== DefaultSlippage;
+
   const displayedSlippage =
     manualSlippage !== ""
       ? manualSlippage
-      : slippageConfig &&
-          slippageConfig.defaultManualSlippage !== DefaultSlippage &&
-          !isEditingSlippage
-        ? slippageConfig.defaultManualSlippage
+      : isAutoAdjusted && !isEditingSlippage
+        ? autoAdjustedSlippage!
         : "";
+
+  // Keep an up-to-date ref to isEditingSlippage for use inside the effect below.
+  const isEditingSlippageRef = useRef(false);
+  isEditingSlippageRef.current = isEditingSlippage;
+
+  // When the auto-adjusted tier changes, clear any locally-typed value so the
+  // display reflects the new suggestion (the config useEffect guards user overrides).
+  useEffect(() => {
+    if (!isEditingSlippageRef.current) {
+      setManualSlippage("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoAdjustedSlippage]);
 
   const isManualSlippageTooHigh =
     (!!displayedSlippage && parseInt(displayedSlippage) > 1) ||
@@ -231,7 +248,7 @@ export const ReviewOrder = observer(function ReviewOrder({
       if (value === "") {
         setManualSlippage("");
         slippageConfig?.setManualSlippage(
-          slippageConfig?.defaultManualSlippage
+          autoAdjustedSlippage ?? DefaultSlippage
         );
         return;
       }
@@ -243,7 +260,7 @@ export const ReviewOrder = observer(function ReviewOrder({
       setManualSlippage(value);
       slippageConfig?.setManualSlippage(new Dec(+value).toString());
     },
-    [slippageConfig]
+    [slippageConfig, autoAdjustedSlippage]
   );
 
   useEffect(() => {
@@ -578,8 +595,7 @@ export const ReviewOrder = observer(function ReviewOrder({
                       left={t("swap.settings.slippage")}
                       right={
                         <div className="flex items-center justify-end gap-2">
-                          {slippageConfig.defaultManualSlippage !==
-                            DefaultSlippage && (
+                          {isAutoAdjusted && (
                             <GenericDisclaimer
                               title="Slippage auto-adjusted"
                               body="This trade's default slippage has been raised due to high price impact or low liquidity."
@@ -604,9 +620,7 @@ export const ReviewOrder = observer(function ReviewOrder({
                               type="text"
                               inputMode="decimal"
                               minWidth={30}
-                              placeholder={
-                                slippageConfig?.defaultManualSlippage + "%"
-                              }
+                              placeholder={`${autoAdjustedSlippage ?? DefaultSlippage}%`}
                               className="sm:caption w-fit bg-transparent px-0"
                               inputClassName={classNames(
                                 "!bg-transparent focus:text-center text-right placeholder:text-wosmongton-300 transition-all focus-visible:outline-none",
