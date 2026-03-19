@@ -244,8 +244,6 @@ export const ReviewOrder = observer(function ReviewOrder({
 
   const handleManualSlippageChange = useCallback(
     (value: string) => {
-      if (value.length > 3) return;
-
       if (value === "") {
         setManualSlippage("");
         slippageConfig?.setManualSlippage(
@@ -258,8 +256,14 @@ export const ReviewOrder = observer(function ReviewOrder({
         return;
       }
 
-      setManualSlippage(value);
-      slippageConfig?.setManualSlippage(new Dec(+value).toString());
+      // Allow at most 1 decimal place
+      const dotIndex = value.indexOf(".");
+      if (dotIndex !== -1 && value.length - dotIndex > 2) return;
+
+      // Cap at 100%
+      const effectiveValue = +value > 100 ? "100" : value;
+      setManualSlippage(effectiveValue);
+      slippageConfig?.setManualSlippage(new Dec(+effectiveValue).toString());
     },
     [slippageConfig, autoAdjustedSlippage]
   );
